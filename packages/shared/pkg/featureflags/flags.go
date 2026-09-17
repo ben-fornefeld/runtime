@@ -462,6 +462,24 @@ var (
 	// 0 probes the parent header's readiness without waiting; a positive value
 	// waits up to that long before refusing retryably.
 	PauseAdmissionGraceMs = NewIntFlag("pause-admission-grace-milliseconds", -1)
+	// PauseEnvdHealthTimeoutMs gates the snapshot-admission envd health probe,
+	// in milliseconds. Same sign convention as PauseAdmissionGraceMs: negative
+	// (default) disables the probe; 0 or more probes envd's /health with that
+	// timeout and refuses the pause retryably when it does not answer.
+	//
+	// A memory snapshot restores envd mid-execution rather than restarting it,
+	// so an envd that is already unresponsive when the snapshot is taken is
+	// recorded in that state and replayed on every later resume: the resume
+	// reaches envd-init, never gets an answer, and burns the whole request
+	// budget. Nothing marks the snapshot bad, so the sandbox retries forever.
+	// Probing here catches that BEFORE the destructive steps, while the pause
+	// can still be refused retryably.
+	//
+	// Pair with PauseRefusalRestoreFlag: without it a refusal still ends as a
+	// removed record and an orphan-reaped VM, so the probe only converts one
+	// bad outcome into another. With it, a refused pause keeps the sandbox
+	// running and the customer retries.
+	PauseEnvdHealthTimeoutMs = NewIntFlag("pause-envd-health-timeout-milliseconds", -1)
 	// PauseRefusalRestoreFlag gates the API-side restore of a retryably
 	// refused pause: record kept, routing re-registered, state back to
 	// Running. Off (default), a refused pause still ends today's way — the

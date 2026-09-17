@@ -3602,11 +3602,21 @@ const (
 	// SnapshotAdmissionLatchedError: a latched seal failure means no valid
 	// snapshot can ever be produced; not retryable.
 	SnapshotAdmissionLatchedError SnapshotAdmissionOutcome = "latched_error"
+	// SnapshotAdmissionEnvdUnhealthy: envd did not answer /health, so a memory
+	// snapshot taken now would capture an unresponsive agent and never resume.
+	SnapshotAdmissionEnvdUnhealthy SnapshotAdmissionOutcome = "envd_unhealthy"
 )
 
 // ErrSnapshotAdmissionPending marks a retryable admission refusal: the parent
 // memfile header was still deduplicating when the grace elapsed.
 var ErrSnapshotAdmissionPending = errors.New("parent memfile header is still deduplicating")
+
+// ErrSnapshotAdmissionEnvdUnhealthy marks a retryable admission refusal: envd
+// did not answer its health probe, so a memory snapshot taken now would record
+// an unresponsive agent. Retryable because envd frequently recovers on its own
+// — the probe is a strong signal that the snapshot would be unresumable, not a
+// certainty, so the pause is deferred rather than the sandbox condemned.
+var ErrSnapshotAdmissionEnvdUnhealthy = errors.New("envd is not responding to health checks")
 
 // AwaitSnapshotAdmission is the pre-destructive snapshot-admission pre-flight:
 // "can this sandbox produce a valid snapshot right now?". It folds the

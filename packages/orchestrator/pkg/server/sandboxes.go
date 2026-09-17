@@ -877,6 +877,27 @@ func (s *Server) Pause(ctx context.Context, in *orchestrator.SandboxPauseRequest
 		telemetry.WithEnvdVersion(sbx.Config.Envd.Version),
 	)
 
+	// Flag-gated envd pre-flight, independent of the durable-header wait below
+	// and only for memory snapshots: a memory snapshot restores envd
+	// mid-execution, so one taken while envd is unresponsive is replayed wedged
+	// on every later resume and the sandbox never comes back.
+	if !in.GetFilesystemOnly() {
+		outcome, waited, admitErr := sbx.AwaitEnvdAdmission(ctx)
+		switch {
+		case errors.Is(admitErr, sandbox.ErrSnapshotAdmissionEnvdUnhealthy):
+			s.recordPauseAdmission(ctx, "pause", outcome, waited)
+			// Retryable, and deliberately NOT the latched/kill path below: an
+			// unanswered probe predicts an unresumable snapshot, it does not
+			// prove one, and envd often recovers on its own.
+			sbxlogger.E(sbx).Warn(ctx, "Refusing pause: envd is not answering health checks", zap.Duration("probe", waited))
+
+			return nil, status.Errorf(codes.ResourceExhausted, "sandbox '%s' guest agent is not responding, please retry", in.GetSandboxId())
+		case admitErr != nil:
+			// Context ended mid-probe: nothing decided, sandbox untouched.
+			return nil, status.FromContextError(admitErr).Err()
+		}
+	}
+
 	// Flag-gated admission pre-flight: refuse retryably BEFORE any destructive
 	// step while the parent memfile header is still deduplicating.
 	var latchedErr error
@@ -1045,6 +1066,21 @@ func (s *Server) Checkpoint(ctx context.Context, in *orchestrator.SandboxCheckpo
 	// Check envd version before snapshotting.
 	if err := utils.CheckEnvdVersionForSnapshot(sbx.Config.Envd.Version); err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "%s", err.Error())
+	}
+
+	// The same envd pre-flight as Pause. A checkpoint always takes a full
+	// memory snapshot, so it can inherit a wedged envd the same way.
+	{
+		outcome, waited, admitErr := sbx.AwaitEnvdAdmission(ctx)
+		switch {
+		case errors.Is(admitErr, sandbox.ErrSnapshotAdmissionEnvdUnhealthy):
+			s.recordPauseAdmission(ctx, "checkpoint", outcome, waited)
+			sbxlogger.E(sbx).Warn(ctx, "Refusing checkpoint: envd is not answering health checks", zap.Duration("probe", waited))
+
+			return nil, status.Errorf(codes.ResourceExhausted, "sandbox '%s' guest agent is not responding, please retry", in.GetSandboxId())
+		case admitErr != nil:
+			return nil, status.FromContextError(admitErr).Err()
+		}
 	}
 
 	// The same flag-gated admission pre-flight as Pause (a checkpoint always
