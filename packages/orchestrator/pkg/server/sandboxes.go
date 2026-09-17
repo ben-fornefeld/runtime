@@ -881,8 +881,8 @@ func (s *Server) Pause(ctx context.Context, in *orchestrator.SandboxPauseRequest
 	// and only for memory snapshots: a memory snapshot restores envd
 	// mid-execution, so one taken while envd is unresponsive is replayed wedged
 	// on every later resume and the sandbox never comes back.
-	if !in.GetFilesystemOnly() {
-		outcome, waited, admitErr := sbx.AwaitEnvdAdmission(ctx)
+	if healthMs := s.featureFlags.IntFlag(ctx, featureflags.PauseEnvdHealthTimeoutMs); healthMs >= 0 && !in.GetFilesystemOnly() {
+		outcome, waited, admitErr := sbx.AwaitEnvdAdmission(ctx, time.Duration(healthMs)*time.Millisecond)
 		switch {
 		case errors.Is(admitErr, sandbox.ErrSnapshotAdmissionEnvdUnhealthy):
 			s.recordPauseAdmission(ctx, "pause", outcome, waited)
@@ -1070,8 +1070,8 @@ func (s *Server) Checkpoint(ctx context.Context, in *orchestrator.SandboxCheckpo
 
 	// The same envd pre-flight as Pause. A checkpoint always takes a full
 	// memory snapshot, so it can inherit a wedged envd the same way.
-	{
-		outcome, waited, admitErr := sbx.AwaitEnvdAdmission(ctx)
+	if healthMs := s.featureFlags.IntFlag(ctx, featureflags.PauseEnvdHealthTimeoutMs); healthMs >= 0 {
+		outcome, waited, admitErr := sbx.AwaitEnvdAdmission(ctx, time.Duration(healthMs)*time.Millisecond)
 		switch {
 		case errors.Is(admitErr, sandbox.ErrSnapshotAdmissionEnvdUnhealthy):
 			s.recordPauseAdmission(ctx, "checkpoint", outcome, waited)

@@ -8,18 +8,19 @@ import (
 	"net"
 	"net/http"
 	"testing"
+	"time"
 
-	"github.com/launchdarkly/go-sdk-common/v3/ldvalue"
-	"github.com/launchdarkly/go-server-sdk/v7/testhelpers/ldtestdata"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/e2b-dev/infra/packages/orchestrator/pkg/sandbox/network"
-	"github.com/e2b-dev/infra/packages/shared/pkg/featureflags"
 	"github.com/e2b-dev/infra/packages/shared/pkg/sandboxtypes"
 )
 
-const envdHealthFlagKey = "pause-envd-health-timeout-milliseconds"
+// probeTimeout is what a rollout would set: generous next to the 100ms
+// monitoring probe, because here a false refusal costs a customer a pause
+// rather than a log line.
+const probeTimeout = 500 * time.Millisecond
 
 // stubRoundTripper answers every request with a canned result, so the health
 // probe can be exercised without a real guest. getHealth builds its URL from
@@ -40,26 +41,7 @@ func (rt *stubRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: rt.status, Body: http.NoBody, Request: r}, nil
 }
 
-func newEnvdHealthFlags(t *testing.T) (*featureflags.Client, *ldtestdata.TestDataSource) {
-	t.Helper()
-
-	source := ldtestdata.DataSource()
-	ff, err := featureflags.NewClientWithDatasource(source)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ff.Close(context.WithoutCancel(t.Context())) })
-
-	return ff, source
-}
-
-// enableEnvdHealthProbe turns the probe on with the timeout a rollout would
-// use: generous next to the 100ms monitoring probe, because here a false
-// refusal costs a customer a pause rather than a log line.
-func enableEnvdHealthProbe(t *testing.T, source *ldtestdata.TestDataSource) {
-	t.Helper()
-	source.Update(source.Flag(envdHealthFlagKey).ValueForAll(ldvalue.Int(500)))
-}
-
-func newHealthProbeSandbox(t *testing.T, flags *featureflags.Client) *Sandbox {
+func newHealthProbeSandbox(t *testing.T) *Sandbox {
 	t.Helper()
 
 	sbx := &Sandbox{
@@ -67,8 +49,7 @@ func newHealthProbeSandbox(t *testing.T, flags *featureflags.Client) *Sandbox {
 			Config:  NewConfig(Config{}),
 			Runtime: sandboxtypes.RuntimeMetadata{SandboxID: "test-sandbox"},
 		},
-		Resources:    &Resources{Slot: &network.Slot{HostIP: net.IPv4(127, 0, 0, 1)}},
-		featureFlags: flags,
+		Resources: &Resources{Slot: &network.Slot{HostIP: net.IPv4(127, 0, 0, 1)}},
 	}
 	sbx.Checks = NewChecks(sbx)
 
@@ -88,11 +69,10 @@ func withStubTransport(t *testing.T, rt http.RoundTripper) {
 //
 //nolint:paralleltest // overrides the package-level sandboxHttpClient
 func TestAwaitEnvdHealthy_DisabledByDefault(t *testing.T) {
-	flags, _ := newEnvdHealthFlags(t)
 	rt := &stubRoundTripper{err: errors.New("envd is gone")}
 	withStubTransport(t, rt)
 
-	outcome, _, err := newHealthProbeSandbox(t, flags).awaitEnvdHealthy(t.Context())
+	outcome, _, err := newHealthProbeSandbox(t).AwaitEnvdAdmission(t.Context(), -1)
 	require.NoError(t, err, "a disabled probe must never refuse a pause")
 	assert.Equal(t, SnapshotAdmissionReady, outcome)
 	assert.Zero(t, rt.calls, "a disabled probe must not dial the guest")
@@ -104,12 +84,10 @@ func TestAwaitEnvdHealthy_DisabledByDefault(t *testing.T) {
 //
 //nolint:paralleltest // overrides the package-level sandboxHttpClient
 func TestAwaitEnvdHealthy_UnresponsiveEnvdRefusesRetryably(t *testing.T) {
-	flags, source := newEnvdHealthFlags(t)
-	enableEnvdHealthProbe(t, source)
 	rt := &stubRoundTripper{err: errors.New("connection refused")}
 	withStubTransport(t, rt)
 
-	outcome, _, err := newHealthProbeSandbox(t, flags).awaitEnvdHealthy(t.Context())
+	outcome, _, err := newHealthProbeSandbox(t).AwaitEnvdAdmission(t.Context(), probeTimeout)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSnapshotAdmissionEnvdUnhealthy)
 	assert.Equal(t, SnapshotAdmissionEnvdUnhealthy, outcome)
@@ -121,22 +99,18 @@ func TestAwaitEnvdHealthy_UnresponsiveEnvdRefusesRetryably(t *testing.T) {
 //
 //nolint:paralleltest // overrides the package-level sandboxHttpClient
 func TestAwaitEnvdHealthy_HealthyEnvdAdmits(t *testing.T) {
-	flags, source := newEnvdHealthFlags(t)
-	enableEnvdHealthProbe(t, source)
 	withStubTransport(t, &stubRoundTripper{status: http.StatusNoContent})
 
-	outcome, _, err := newHealthProbeSandbox(t, flags).awaitEnvdHealthy(t.Context())
+	outcome, _, err := newHealthProbeSandbox(t).AwaitEnvdAdmission(t.Context(), probeTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, SnapshotAdmissionReady, outcome)
 }
 
 //nolint:paralleltest // overrides the package-level sandboxHttpClient
 func TestAwaitEnvdHealthy_UnexpectedStatusRefuses(t *testing.T) {
-	flags, source := newEnvdHealthFlags(t)
-	enableEnvdHealthProbe(t, source)
 	withStubTransport(t, &stubRoundTripper{status: http.StatusInternalServerError})
 
-	outcome, _, err := newHealthProbeSandbox(t, flags).awaitEnvdHealthy(t.Context())
+	outcome, _, err := newHealthProbeSandbox(t).AwaitEnvdAdmission(t.Context(), probeTimeout)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSnapshotAdmissionEnvdUnhealthy)
 	assert.Equal(t, SnapshotAdmissionEnvdUnhealthy, outcome)
@@ -147,14 +121,12 @@ func TestAwaitEnvdHealthy_UnexpectedStatusRefuses(t *testing.T) {
 //
 //nolint:paralleltest // overrides the package-level sandboxHttpClient
 func TestAwaitEnvdHealthy_NilChecksAdmits(t *testing.T) {
-	flags, source := newEnvdHealthFlags(t)
-	enableEnvdHealthProbe(t, source)
 	withStubTransport(t, &stubRoundTripper{err: errors.New("envd is gone")})
 
-	sbx := newHealthProbeSandbox(t, flags)
+	sbx := newHealthProbeSandbox(t)
 	sbx.Checks = nil
 
-	outcome, _, err := sbx.awaitEnvdHealthy(t.Context())
+	outcome, _, err := sbx.AwaitEnvdAdmission(t.Context(), probeTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, SnapshotAdmissionReady, outcome)
 }
@@ -165,14 +137,12 @@ func TestAwaitEnvdHealthy_NilChecksAdmits(t *testing.T) {
 //
 //nolint:paralleltest // overrides the package-level sandboxHttpClient
 func TestAwaitEnvdHealthy_ContextCancelledIsNotARefusal(t *testing.T) {
-	flags, source := newEnvdHealthFlags(t)
-	enableEnvdHealthProbe(t, source)
 	withStubTransport(t, &stubRoundTripper{err: errors.New("cancelled")})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	outcome, _, err := newHealthProbeSandbox(t, flags).awaitEnvdHealthy(ctx)
+	outcome, _, err := newHealthProbeSandbox(t).AwaitEnvdAdmission(ctx, probeTimeout)
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrSnapshotAdmissionEnvdUnhealthy,
 		"a cancelled context must not be reported as an unhealthy envd")

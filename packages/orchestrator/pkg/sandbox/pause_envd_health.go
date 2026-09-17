@@ -9,8 +9,6 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
-
-	"github.com/e2b-dev/infra/packages/shared/pkg/featureflags"
 )
 
 // awaitEnvdHealthy is the envd half of the snapshot-admission pre-flight.
@@ -37,27 +35,25 @@ import (
 // disabled or cannot be run.
 // AwaitEnvdAdmission runs as its own pre-flight, before (and independently of)
 // the durable-header admission wait, so the two can be rolled out separately.
-// A nil error means the pause may proceed.
-func (s *Sandbox) AwaitEnvdAdmission(ctx context.Context) (SnapshotAdmissionOutcome, time.Duration, error) {
-	ctx, span := tracer.Start(ctx, "envd-admission")
-	defer span.End()
-
-	return s.awaitEnvdHealthy(ctx)
-}
-
-func (s *Sandbox) awaitEnvdHealthy(ctx context.Context) (SnapshotAdmissionOutcome, time.Duration, error) {
-	ctx = featureflags.AddToContext(
-		ctx,
-		sandboxLDContext(s.Runtime, s.Config),
-		featureflags.TeamContext(s.Runtime.TeamID),
-		featureflags.TemplateContext(s.Runtime.TemplateID),
-	)
-
-	timeoutMs := s.featureFlags.IntFlag(ctx, featureflags.PauseEnvdHealthTimeoutMs)
-	if timeoutMs < 0 {
+// A negative timeout disables the probe. A nil error means the pause may
+// proceed.
+//
+// The timeout is passed in rather than read here, matching how the caller gates
+// the durable-header wait on PauseAdmissionGraceMs: the flag lookup belongs to
+// the server's feature-flag client, and keeping this method free of one leaves
+// it pure and callable from a Sandbox built without flags.
+func (s *Sandbox) AwaitEnvdAdmission(ctx context.Context, timeout time.Duration) (SnapshotAdmissionOutcome, time.Duration, error) {
+	if timeout < 0 {
 		return SnapshotAdmissionReady, 0, nil
 	}
 
+	ctx, span := tracer.Start(ctx, "envd-admission")
+	defer span.End()
+
+	return s.awaitEnvdHealthy(ctx, timeout)
+}
+
+func (s *Sandbox) awaitEnvdHealthy(ctx context.Context, timeout time.Duration) (SnapshotAdmissionOutcome, time.Duration, error) {
 	// Checks owns the probe and its HTTP client. It is stopped inside Pause,
 	// well after admission, but a sandbox torn down concurrently can leave it
 	// nil — in which case say nothing rather than refuse on missing evidence.
@@ -66,14 +62,14 @@ func (s *Sandbox) awaitEnvdHealthy(ctx context.Context) (SnapshotAdmissionOutcom
 	}
 
 	start := time.Now()
-	healthy, err := s.Checks.getHealth(ctx, time.Duration(timeoutMs)*time.Millisecond)
+	healthy, err := s.Checks.getHealth(ctx, timeout)
 	waited := time.Since(start)
 
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(
 		attribute.Bool("admission.envd_healthy", healthy),
 		attribute.Int64("admission.envd_probe_ms", waited.Milliseconds()),
-		attribute.Int64("admission.envd_probe_timeout_ms", int64(timeoutMs)),
+		attribute.Int64("admission.envd_probe_timeout_ms", timeout.Milliseconds()),
 	)
 
 	if healthy {
