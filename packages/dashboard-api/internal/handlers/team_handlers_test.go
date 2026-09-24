@@ -9,12 +9,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	authqueries "github.com/e2b-dev/infra/packages/db/pkg/auth/queries"
-	"github.com/e2b-dev/infra/packages/db/pkg/testutils"
 	"github.com/stretchr/testify/require"
 
 	"github.com/e2b-dev/infra/packages/auth/pkg/auth"
 	authtypes "github.com/e2b-dev/infra/packages/auth/pkg/types"
+	authqueries "github.com/e2b-dev/infra/packages/db/pkg/auth/queries"
+	"github.com/e2b-dev/infra/packages/db/pkg/testutils"
 )
 
 const testBaseTier = "base_v1"

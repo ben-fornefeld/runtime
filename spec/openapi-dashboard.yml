@@ -1554,8 +1554,6 @@ paths:
           $ref: "#/components/responses/401"
         "500":
           $ref: "#/components/responses/500"
-  /admin/users/bootstrap:
-  /admin/teams/bootstrap:
   /admin/clusters:
     post:
       summary: Create a cluster
