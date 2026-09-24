@@ -19,4 +19,5 @@ type Directory interface {
 	ListIdentities(ctx context.Context, subjects []string) ([]Identity, error)
 	SearchByEmail(ctx context.Context, email string) ([]Identity, error)
 	SetExternalID(ctx context.Context, subject string, externalID uuid.UUID) error
+	DeleteIdentity(ctx context.Context, subject string) error
 }

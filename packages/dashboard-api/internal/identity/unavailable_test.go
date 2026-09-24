@@ -25,6 +25,12 @@ func TestUnavailableServiceReportsNoIdentityProvider(t *testing.T) {
 	_, err = service.UserOrganizationID(ctx, userID)
 	require.ErrorIs(t, err, ErrNoIdentityProvider)
 
+	_, err = service.TeamCreatorContext(ctx, userID)
+	require.ErrorIs(t, err, ErrNoIdentityProvider)
+
 	_, err = service.FindProfilesByEmail(ctx, "user@example.com")
+	require.ErrorIs(t, err, ErrNoIdentityProvider)
+
+	_, err = service.PrepareDeleteUser(ctx, userID)
 	require.ErrorIs(t, err, ErrNoIdentityProvider)
 }

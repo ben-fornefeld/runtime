@@ -73,6 +73,15 @@ func (d *fakeDirectory) SetExternalID(_ context.Context, subject string, externa
 	return nil
 }
 
+func (d *fakeDirectory) DeleteIdentity(_ context.Context, subject string) error {
+	if d.deleteErr != nil {
+		return d.deleteErr
+	}
+	d.deleted = append(d.deleted, subject)
+
+	return nil
+}
+
 type fakeLinkage struct {
 	rows []LinkedIdentity
 
@@ -334,6 +343,42 @@ func TestServiceUserOrganizationID_RejectsMultipleOrgs(t *testing.T) {
 	}
 }
 
+func TestServiceTeamCreatorContext(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	subject := uuid.NewString()
+
+	directory := newFakeDirectory(Identity{
+		Subject:         subject,
+		SignupIP:        "198.51.100.20",
+		SignupUserAgent: "Dashboard/1.0",
+		AuthMethod:      "social",
+	})
+	linkage := &fakeLinkage{rows: []LinkedIdentity{{Issuer: issuerA, Subject: subject, UserID: userID}}}
+
+	svc, err := NewService(map[string]Directory{issuerA: directory}, linkage)
+	if err != nil {
+		t.Fatalf("failed to build service: %v", err)
+	}
+
+	got, err := svc.TeamCreatorContext(t.Context(), userID)
+	if err != nil {
+		t.Fatalf("TeamCreatorContext returned error: %v", err)
+	}
+	if got == nil || got.IPAddress != "198.51.100.20" || got.UserAgent != "Dashboard/1.0" || got.AuthMethod != "social" {
+		t.Fatalf("unexpected creator context: %+v", got)
+	}
+
+	missing, err := svc.TeamCreatorContext(t.Context(), uuid.New())
+	if err != nil {
+		t.Fatalf("TeamCreatorContext returned error for unlinked user: %v", err)
+	}
+	if missing != nil {
+		t.Fatalf("expected nil creator context for unlinked user, got %+v", missing)
+	}
+}
+
 func TestServiceFindProfilesByEmailIntersectsLinkage(t *testing.T) {
 	t.Parallel()
 
@@ -363,5 +408,56 @@ func TestServiceFindProfilesByEmailIntersectsLinkage(t *testing.T) {
 	}
 	if profiles[0].UserID != userID {
 		t.Fatalf("expected user %s, got %s", userID, profiles[0].UserID)
+	}
+}
+
+func TestServicePrepareDeleteUser(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	subjectA := uuid.NewString()
+	subjectB := uuid.NewString()
+
+	directoryA := newFakeDirectory(Identity{Subject: subjectA})
+	directoryB := newFakeDirectory(Identity{Subject: subjectB})
+	linkage := &fakeLinkage{rows: []LinkedIdentity{
+		{Issuer: issuerA, Subject: subjectA, UserID: userID},
+		{Issuer: issuerB, Subject: subjectB, UserID: userID},
+	}}
+
+	svc, err := NewService(map[string]Directory{issuerA: directoryA, issuerB: directoryB}, linkage)
+	if err != nil {
+		t.Fatalf("failed to build service: %v", err)
+	}
+
+	handle, err := svc.PrepareDeleteUser(t.Context(), userID)
+	if err != nil {
+		t.Fatalf("PrepareDeleteUser returned error: %v", err)
+	}
+	if err := handle.Execute(t.Context()); err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+
+	if len(directoryA.deleted) != 1 || directoryA.deleted[0] != subjectA {
+		t.Fatalf("expected subject A deleted via issuer A directory, got %v", directoryA.deleted)
+	}
+	if len(directoryB.deleted) != 1 || directoryB.deleted[0] != subjectB {
+		t.Fatalf("expected subject B deleted via issuer B directory, got %v", directoryB.deleted)
+	}
+}
+
+func TestServicePrepareDeleteUserErrors(t *testing.T) {
+	t.Parallel()
+
+	svc, err := NewService(map[string]Directory{issuerA: newFakeDirectory()}, &fakeLinkage{})
+	if err != nil {
+		t.Fatalf("failed to build service: %v", err)
+	}
+
+	if _, err := svc.PrepareDeleteUser(t.Context(), uuid.Nil); err == nil {
+		t.Fatal("expected error for nil user id")
+	}
+	if _, err := svc.PrepareDeleteUser(t.Context(), uuid.New()); !errors.Is(err, ErrUserNotFound) {
+		t.Fatalf("expected ErrUserNotFound for unlinked user, got: %v", err)
 	}
 }
