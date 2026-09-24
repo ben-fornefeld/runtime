@@ -171,25 +171,6 @@ func (d *oryDirectory) SetExternalID(ctx context.Context, subject string, extern
 	return nil
 }
 
-func (d *oryDirectory) DeleteIdentity(ctx context.Context, subject string) error {
-	subject = strings.TrimSpace(subject)
-	if subject == "" {
-		return errors.New("ory identity subject is required")
-	}
-
-	resp, err := d.identities.DeleteIdentityExecute(
-		d.identities.DeleteIdentity(d.authCtx(ctx), subject),
-	)
-	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
-	}
-	if err != nil {
-		return fmt.Errorf("delete ory identity %s: %w", subject, err)
-	}
-
-	return nil
-}
-
 func identityFromOry(oryIdentity ory.Identity) (Identity, error) {
 	traits, _ := oryIdentity.Traits.(map[string]any)
 
@@ -209,9 +190,6 @@ func identityFromOry(oryIdentity ory.Identity) (Identity, error) {
 		ProfilePictureURL: metadataString(oryIdentity.MetadataPublic, "picture"),
 		Providers:         oryLinkedProviders(oryIdentity),
 		OrganizationID:    organizationID,
-		SignupIP:          metadataString(oryIdentity.MetadataAdmin, signupIPMetadataKey),
-		SignupUserAgent:   metadataString(oryIdentity.MetadataAdmin, signupUserAgentMetadataKey),
-		AuthMethod:        authMethodFromProviderNames(providerNamesFromOryIdentity(oryIdentity)),
 	}, nil
 }
 

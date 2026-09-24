@@ -44,7 +44,7 @@ func (s *APIStore) ManagementAssignProjectCluster(c *gin.Context, projectID api.
 }
 
 func (s *APIStore) ManagementDetachProjectCluster(c *gin.Context, projectID api.ProjectID, clusterID api.ClusterID) {
-	s.DeleteAdminTeamsTeamIDClusterClusterID(c, projectID, clusterID)
+	s.detachTeamCluster(c, projectID, clusterID)
 }
 
 func (s *APIStore) ManagementDeleteCluster(c *gin.Context, clusterID api.ClusterID) {

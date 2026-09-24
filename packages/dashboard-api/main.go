@@ -30,7 +30,6 @@ import (
 	"github.com/e2b-dev/infra/packages/dashboard-api/internal/handlers"
 	"github.com/e2b-dev/infra/packages/dashboard-api/internal/identity"
 	dashboardmiddleware "github.com/e2b-dev/infra/packages/dashboard-api/internal/middleware"
-	internalteamprovision "github.com/e2b-dev/infra/packages/dashboard-api/internal/teamprovision"
 	sqlcdb "github.com/e2b-dev/infra/packages/db/client"
 	authdb "github.com/e2b-dev/infra/packages/db/pkg/auth"
 	"github.com/e2b-dev/infra/packages/db/pkg/pool"
@@ -206,18 +205,7 @@ func run() int {
 		return 1
 	}
 
-	teamProvisionSink, err := internalteamprovision.NewProvisionSink(
-		ctx,
-		config.BillingServerURL,
-		config.BillingServerAPIToken,
-	)
-	if err != nil {
-		l.Error(ctx, "initializing team provision sink", zap.Error(err))
-
-		return 1
-	}
-
-	apiStore := handlers.NewAPIStore(config, db, authDB, clickhouseClient, authService, identityService, teamProvisionSink)
+	apiStore := handlers.NewAPIStore(config, db, authDB, clickhouseClient, authService, identityService)
 
 	swagger, err := api.GetSwagger()
 	if err != nil {
@@ -249,7 +237,7 @@ func run() int {
 		nil,
 	)
 
-	s := newHTTPServer(config.Port, l, tel, swagger, authenticationFunc, featureFlags, apiStore)
+	s := newHTTPServer(config.Port, l, tel, swagger, authenticationFunc, apiStore)
 
 	signalCtx, sigCancel := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT)
 	defer sigCancel()
@@ -324,7 +312,6 @@ func newHTTPServer(
 	tel *telemetry.Client,
 	swagger *openapi3.T,
 	authenticationFunc openapi3filter.AuthenticationFunc,
-	featureFlags *featureflags.Client,
 	store api.ServerInterface,
 ) *http.Server {
 	r := gin.New()
@@ -395,7 +382,6 @@ func newHTTPServer(
 			}),
 	)
 
-	r.Use(dashboardmiddleware.DisableLegacyTeamMutations(featureFlags))
 	r.Use(dashboardmiddleware.EnforceBlockedTeam())
 
 	api.RegisterHandlers(r, store)

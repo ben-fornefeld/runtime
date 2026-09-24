@@ -5,8 +5,6 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-
-	sharedteamprovision "github.com/e2b-dev/infra/packages/shared/pkg/teamprovision"
 )
 
 // ErrNoIdentityProvider is what every method of the service returned by
@@ -41,14 +39,6 @@ func (unavailableService) UserOrganizationID(_ context.Context, _ uuid.UUID) (uu
 	return uuid.Nil, ErrNoIdentityProvider
 }
 
-func (unavailableService) TeamCreatorContext(_ context.Context, _ uuid.UUID) (*sharedteamprovision.CreatorContextV1, error) {
-	return nil, ErrNoIdentityProvider
-}
-
 func (unavailableService) FindProfilesByEmail(_ context.Context, _ string) ([]Profile, error) {
-	return nil, ErrNoIdentityProvider
-}
-
-func (unavailableService) PrepareDeleteUser(_ context.Context, _ uuid.UUID) (DeleteUserHandle, error) {
 	return nil, ErrNoIdentityProvider
 }

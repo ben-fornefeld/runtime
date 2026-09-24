@@ -155,16 +155,6 @@ func (s *APIStore) GetAdminTeamsTeamIDCluster(c *gin.Context, teamID api.TeamID)
 	c.JSON(http.StatusOK, api.AdminTeamClusterAssignmentResponse{ClusterId: *clusterID})
 }
 
-func (s *APIStore) PutAdminTeamsTeamIDCluster(c *gin.Context, teamID api.TeamID) {
-	body, err := ginutils.ParseBody[api.AdminTeamClusterAssignmentRequest](c.Request.Context(), c)
-	if err != nil {
-		s.sendAPIStoreError(c, http.StatusBadRequest, fmt.Sprintf("Error when parsing request: %s", err))
-
-		return
-	}
-	s.assignTeamCluster(c, teamID, body.ClusterId, body.PreserveExisting != nil && *body.PreserveExisting)
-}
-
 func (s *APIStore) assignTeamCluster(c *gin.Context, teamID, clusterID uuid.UUID, preserveExisting bool) {
 	if clusterID == uuid.Nil {
 		s.sendAPIStoreError(c, http.StatusBadRequest, "cluster_id is required")
@@ -217,7 +207,20 @@ func (s *APIStore) assignTeamCluster(c *gin.Context, teamID, clusterID uuid.UUID
 	c.Status(http.StatusNoContent)
 }
 
-func (s *APIStore) DeleteAdminTeamsTeamIDClusterClusterID(
+func trimmedOptional(value *string) *string {
+	if value == nil {
+		return nil
+	}
+
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+
+	return &trimmed
+}
+
+func (s *APIStore) detachTeamCluster(
 	c *gin.Context,
 	teamID api.TeamID,
 	clusterID api.ClusterID,
@@ -256,17 +259,4 @@ func (s *APIStore) DeleteAdminTeamsTeamIDClusterClusterID(
 	}
 
 	c.Status(http.StatusNoContent)
-}
-
-func trimmedOptional(value *string) *string {
-	if value == nil {
-		return nil
-	}
-
-	trimmed := strings.TrimSpace(*value)
-	if trimmed == "" {
-		return nil
-	}
-
-	return &trimmed
 }

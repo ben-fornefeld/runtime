@@ -303,12 +303,6 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
-    "412":
-      description: Legacy team mutations are disabled
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
     "500":
       description: Server error
       content:
@@ -391,45 +385,6 @@ components:
           type: string
           format: email
 
-    AdminAuthProviderUserBootstrapRequest:
-      type: object
-      required:
-        - oidc_issuer
-        - oidc_user_id
-        - oidc_user_email
-      properties:
-        oidc_issuer:
-          type: string
-          minLength: 1
-        oidc_user_id:
-          type: string
-          minLength: 1
-        oidc_user_email:
-          type: string
-          format: email
-        oidc_user_name:
-          type: string
-          nullable: true
-        signup_ip:
-          type: string
-        signup_user_agent:
-          type: string
-
-    AdminTeamBootstrapRequest:
-      type: object
-      required:
-        - name
-        - email
-      properties:
-        name:
-          type: string
-          minLength: 1
-          description: Team name.
-        email:
-          type: string
-          format: email
-          description: Billing/contact email for the team.
-
     AdminClusterCreateRequest:
       type: object
       required:
@@ -479,19 +434,6 @@ components:
           minLength: 1
           maxLength: 1000
           description: Shown to the team as the reason it is blocked.
-
-    AdminTeamClusterAssignmentRequest:
-      type: object
-      required:
-        - cluster_id
-      properties:
-        cluster_id:
-          type: string
-          format: uuid
-        preserve_existing:
-          type: boolean
-          default: false
-          description: Assign only when the team is unassigned or already assigned to cluster_id.
 
     AdminTeamClusterAssignmentResponse:
       type: object
@@ -878,46 +820,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/TeamMember"
-
-    UpdateTeamRequest:
-      type: object
-      minProperties: 1
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 255
-
-    UpdateTeamResponse:
-      type: object
-      required:
-        - id
-        - name
-      properties:
-        id:
-          type: string
-          format: uuid
-        name:
-          type: string
-
-    AddTeamMemberRequest:
-      type: object
-      required:
-        - email
-      properties:
-        email:
-          type: string
-          format: email
-
-    CreateTeamRequest:
-      type: object
-      required:
-        - name
-      properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 255
 
     DefaultTemplateAlias:
       type: object
@@ -1652,94 +1554,8 @@ paths:
           $ref: "#/components/responses/401"
         "500":
           $ref: "#/components/responses/500"
-    post:
-      summary: Create team
-      tags: [teams]
-      security:
-        - AuthProviderBearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateTeamRequest"
-      responses:
-        "200":
-          description: Successfully created team.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TeamResolveResponse"
-        "400":
-          $ref: "#/components/responses/400"
-        "401":
-          $ref: "#/components/responses/401"
-        "412":
-          $ref: "#/components/responses/412"
-        "500":
-          $ref: "#/components/responses/500"
-
   /admin/users/bootstrap:
-    post:
-      summary: Bootstrap auth provider user
-      tags: [teams]
-      security:
-        - AdminApiKeyAuth: []
-        - AdminJWTAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AdminAuthProviderUserBootstrapRequest"
-      responses:
-        "200":
-          description: Successfully bootstrapped user.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TeamResolveResponse"
-        "400":
-          $ref: "#/components/responses/400"
-        "401":
-          $ref: "#/components/responses/401"
-        "412":
-          $ref: "#/components/responses/412"
-        "500":
-          $ref: "#/components/responses/500"
-
   /admin/teams/bootstrap:
-    post:
-      summary: Bootstrap team
-      description: Creates and provisions a team for an admin-authenticated bootstrap workflow.
-      tags: [admin]
-      security:
-        - AdminApiKeyAuth: []
-        - AdminJWTAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AdminTeamBootstrapRequest"
-      responses:
-        "200":
-          description: Successfully bootstrapped team.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/TeamResolveResponse"
-        "400":
-          $ref: "#/components/responses/400"
-        "401":
-          $ref: "#/components/responses/401"
-        "412":
-          $ref: "#/components/responses/412"
-        "502":
-          $ref: "#/components/responses/502"
-        "500":
-          $ref: "#/components/responses/500"
-
   /admin/clusters:
     post:
       summary: Create a cluster
@@ -1843,67 +1659,7 @@ paths:
           $ref: "#/components/responses/404"
         "500":
           $ref: "#/components/responses/500"
-    put:
-      summary: Assign a cluster to a team
-      description: >-
-        Updates the team's cluster reference to an existing cluster. New and replacement
-        assignments require a tier identifier containing `enterprise`, case-insensitively.
-        Replaying the identical assignment succeeds even if the team's tier later changes.
-      tags: [admin]
-      security:
-        - AdminApiKeyAuth: []
-        - AdminJWTAuth: []
-      parameters:
-        - $ref: "#/components/parameters/teamID"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AdminTeamClusterAssignmentRequest"
-      responses:
-        "204":
-          description: Cluster assigned.
-        "400":
-          $ref: "#/components/responses/400"
-        "401":
-          $ref: "#/components/responses/401"
-        "404":
-          $ref: "#/components/responses/404"
-        "409":
-          $ref: "#/components/responses/409"
-        "412":
-          $ref: "#/components/responses/412"
-        "500":
-          $ref: "#/components/responses/500"
-
   /admin/teams/{teamID}/cluster/{clusterID}:
-    delete:
-      summary: Detach a cluster from a team
-      description: Clears the assignment only when the team is unassigned or assigned to the specified cluster.
-      tags: [admin]
-      security:
-        - AdminApiKeyAuth: []
-        - AdminJWTAuth: []
-      parameters:
-        - $ref: "#/components/parameters/teamID"
-        - $ref: "#/components/parameters/clusterID"
-      responses:
-        "204":
-          description: Cluster detached or the team was already unassigned.
-        "400":
-          $ref: "#/components/responses/400"
-        "401":
-          $ref: "#/components/responses/401"
-        "404":
-          $ref: "#/components/responses/404"
-        "409":
-          $ref: "#/components/responses/409"
-        "412":
-          $ref: "#/components/responses/412"
-        "500":
-          $ref: "#/components/responses/500"
-
   /admin/teams/{teamID}/ban:
     put:
       summary: Ban a team
@@ -2066,31 +1822,6 @@ paths:
           $ref: "#/components/responses/500"
 
   /admin/users/{userId}:
-    delete:
-      summary: Delete user
-      description: Deletes a user by removing the identity provider record, user_identities mapping, and public.users row.
-      tags: [admin]
-      security:
-        - AdminApiKeyAuth: []
-        - AdminJWTAuth: []
-      parameters:
-        - $ref: "#/components/parameters/userId"
-      responses:
-        "204":
-          description: Successfully deleted user.
-        "400":
-          $ref: "#/components/responses/400"
-        "401":
-          $ref: "#/components/responses/401"
-        "404":
-          $ref: "#/components/responses/404"
-        "409":
-          $ref: "#/components/responses/409"
-        "412":
-          $ref: "#/components/responses/412"
-        "500":
-          $ref: "#/components/responses/500"
-
   /teams/resolve:
     get:
       summary: Resolve team identity
@@ -2117,38 +1848,6 @@ paths:
           $ref: "#/components/responses/500"
 
   /teams/{teamID}:
-    patch:
-      summary: Update team
-      tags: [teams]
-      security:
-        - AuthProviderBearerAuth: []
-          AuthProviderTeamAuth: []
-      parameters:
-        - $ref: "#/components/parameters/teamID"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateTeamRequest"
-      responses:
-        "200":
-          description: Successfully updated team.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/UpdateTeamResponse"
-        "400":
-          $ref: "#/components/responses/400"
-        "401":
-          $ref: "#/components/responses/401"
-        "403":
-          $ref: "#/components/responses/403"
-        "412":
-          $ref: "#/components/responses/412"
-        "500":
-          $ref: "#/components/responses/500"
-
   /teams/{teamID}/status:
     get:
       summary: Get team access status
@@ -2223,60 +1922,7 @@ paths:
           $ref: "#/components/responses/403"
         "500":
           $ref: "#/components/responses/500"
-    post:
-      summary: Add team member
-      tags: [teams]
-      security:
-        - AuthProviderBearerAuth: []
-          AuthProviderTeamAuth: []
-      parameters:
-        - $ref: "#/components/parameters/teamID"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AddTeamMemberRequest"
-      responses:
-        "201":
-          description: Successfully added team member.
-        "400":
-          $ref: "#/components/responses/400"
-        "401":
-          $ref: "#/components/responses/401"
-        "403":
-          $ref: "#/components/responses/403"
-        "412":
-          $ref: "#/components/responses/412"
-        "404":
-          $ref: "#/components/responses/404"
-        "500":
-          $ref: "#/components/responses/500"
-
   /teams/{teamID}/members/{userId}:
-    delete:
-      summary: Remove team member
-      tags: [teams]
-      security:
-        - AuthProviderBearerAuth: []
-          AuthProviderTeamAuth: []
-      parameters:
-        - $ref: "#/components/parameters/teamID"
-        - $ref: "#/components/parameters/userId"
-      responses:
-        "204":
-          description: Successfully removed team member.
-        "400":
-          $ref: "#/components/responses/400"
-        "401":
-          $ref: "#/components/responses/401"
-        "403":
-          $ref: "#/components/responses/403"
-        "412":
-          $ref: "#/components/responses/412"
-        "500":
-          $ref: "#/components/responses/500"
-
   /templates:
     get:
       summary: List team templates

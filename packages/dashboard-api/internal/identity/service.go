@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-
-	sharedteamprovision "github.com/e2b-dev/infra/packages/shared/pkg/teamprovision"
 )
 
 type Service interface {
@@ -17,9 +15,7 @@ type Service interface {
 	SetIdentityExternalID(ctx context.Context, issuer, subject string, externalID uuid.UUID) error
 	ProfilesByUserID(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Profile, error)
 	UserOrganizationID(ctx context.Context, userID uuid.UUID) (uuid.UUID, error)
-	TeamCreatorContext(ctx context.Context, userID uuid.UUID) (*sharedteamprovision.CreatorContextV1, error)
 	FindProfilesByEmail(ctx context.Context, email string) ([]Profile, error)
-	PrepareDeleteUser(ctx context.Context, userID uuid.UUID) (DeleteUserHandle, error)
 }
 
 type service struct {
@@ -158,26 +154,6 @@ func (s *service) UserOrganizationID(ctx context.Context, userID uuid.UUID) (uui
 	return orgID, nil
 }
 
-func (s *service) TeamCreatorContext(ctx context.Context, userID uuid.UUID) (*sharedteamprovision.CreatorContextV1, error) {
-	if userID == uuid.Nil {
-		return nil, nil
-	}
-
-	identities, err := s.identitiesByUserID(ctx, []uuid.UUID{userID})
-	if err != nil {
-		return nil, err
-	}
-
-	id, ok := identities[userID]
-	if !ok {
-		return nil, nil
-	}
-
-	creatorContext := CreatorContextFromIdentity(id)
-
-	return creatorContext, nil
-}
-
 func (s *service) FindProfilesByEmail(ctx context.Context, email string) ([]Profile, error) {
 	normalized := strings.TrimSpace(email)
 	if normalized == "" {
@@ -221,56 +197,6 @@ func (s *service) FindProfilesByEmail(ctx context.Context, email string) ([]Prof
 	}
 
 	return profiles, nil
-}
-
-type DeleteUserHandle interface {
-	// Execute removes the external identities (e.g. Ory). It must be called
-	// only after the caller has already deleted the database rows.
-	Execute(ctx context.Context) error
-}
-
-func (s *service) PrepareDeleteUser(ctx context.Context, userID uuid.UUID) (DeleteUserHandle, error) {
-	if userID == uuid.Nil {
-		return nil, errors.New("user id is required")
-	}
-
-	linked, err := s.linkedIdentitiesForUsers(ctx, []uuid.UUID{userID})
-	if err != nil {
-		return nil, err
-	}
-	if len(linked) == 0 {
-		return nil, fmt.Errorf("%w: no identity mapping for user %s", ErrUserNotFound, userID)
-	}
-
-	targets := make([]deleteTarget, 0, len(linked))
-	for _, row := range linked {
-		directory, err := s.directoryForIssuer(row.Issuer)
-		if err != nil {
-			return nil, err
-		}
-		targets = append(targets, deleteTarget{directory: directory, subject: row.Subject})
-	}
-
-	return &deleteUserHandle{targets: targets}, nil
-}
-
-type deleteTarget struct {
-	directory Directory
-	subject   string
-}
-
-type deleteUserHandle struct {
-	targets []deleteTarget
-}
-
-func (h *deleteUserHandle) Execute(ctx context.Context) error {
-	for _, target := range h.targets {
-		if err := target.directory.DeleteIdentity(ctx, target.subject); err != nil {
-			return fmt.Errorf("delete identity %s: %w", target.subject, err)
-		}
-	}
-
-	return nil
 }
 
 func (s *service) identitiesByUserID(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID]Identity, error) {

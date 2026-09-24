@@ -26,9 +26,6 @@ type Config struct {
 	RedisTLSEnabled  bool   `env:"REDIS_TLS_ENABLED"`
 	RedisPassword    string `env:"REDIS_PASSWORD"`
 
-	BillingServerURL      string `env:"BILLING_SERVER_URL"`
-	BillingServerAPIToken string `env:"BILLING_SERVER_API_TOKEN"`
-
 	OrySDKURL          string `env:"ORY_SDK_URL"`
 	OryProjectAPIToken string `env:"ORY_PROJECT_API_TOKEN,unset"`
 
